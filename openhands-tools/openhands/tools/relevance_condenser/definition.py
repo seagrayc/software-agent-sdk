@@ -5,10 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
-from openhands.sdk.event import ActionEvent, ObservationEvent
-from openhands.sdk.event.base import Event
 from openhands.sdk.event.relevance_condenser import RelevanceCondensationDirective
-from openhands.sdk.logger import get_logger
 from openhands.sdk.tool import ToolAnnotations, ToolDefinition, ToolExecutor
 from openhands.sdk.tool.schema import (
     RelevanceCondensationAction,
@@ -17,9 +14,6 @@ from openhands.sdk.tool.schema import (
 
 if TYPE_CHECKING:
     from openhands.sdk.conversation.state import ConversationState
-    from openhands.sdk.conversation.types import ConversationCallbackType
-
-logger = get_logger(__name__)
 
 
 TOOL_DESCRIPTION = """Background tool for flagging stale, or no longer relevant tool interactions.
@@ -42,9 +36,6 @@ class RelevanceCondenserExecutor(
 
     def __init__(self, state: "ConversationState"):
         self._state = state
-        self._event_callback: "ConversationCallbackType | None" = None
-        self._current_action_event: ActionEvent | None = None
-        self._step_index: int | None = None
 
     def __call__(
         self, action: RelevanceCondensationAction
@@ -52,16 +43,9 @@ class RelevanceCondenserExecutor(
         directive = RelevanceCondensationDirective(
             requested_event_id=action.event_id,
             summary=action.summary_text,
-            requesting_action_id=self._current_action_event.id
-            if self._current_action_event
-            else None,
-            llm_response_id=self._current_action_event.llm_response_id
-            if self._current_action_event
-            else None,
-            agent_step_index=self._step_index,
         )
 
-        self._emit_event(directive)
+        self._state.events.append(directive)
 
         message = (
             "Condensation directive recorded. The condenser will retire "
@@ -72,17 +56,6 @@ class RelevanceCondenserExecutor(
             accepted_event_ids=[action.event_id],
             rejected_event_ids=[],
         )
-
-    def _emit_event(self, event: RelevanceCondensationDirective) -> None:
-        """Emit the directive via callback fallback to direct persistence."""
-        if self._event_callback:
-            self._event_callback(event)
-        else:
-            logger.debug(
-                "No event callback provided; appending directive %s directly to state",
-                event.id,
-            )
-            self._state.events.append(event)
 
 
 class LLMRelevanceCondenserTool(
