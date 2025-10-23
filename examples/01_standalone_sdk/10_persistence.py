@@ -56,7 +56,9 @@ def conversation_callback(event: Event):
         llm_messages.append(event.to_llm_message())
 
 
+# conversation_id = uuid.UUID('fc87e873d6e74d5aa74c49d75b349ec2')
 conversation_id = uuid.uuid4()
+
 persistence_dir = "./.conversations"
 
 conversation = Conversation(
@@ -66,10 +68,11 @@ conversation = Conversation(
     persistence_dir=persistence_dir,
     conversation_id=conversation_id,
 )
+
 conversation.send_message(
-    "Read https://github.com/OpenHands/OpenHands. Then write 3 facts "
-    "about the project into FACTS.txt."
+    "Explain, with links to relevant source-code how the agent-sdk uses an existing converstaion id Conversation(...conversation_id=conversation_id...) to continue a chat. Provide the key  steps mapping the events to the exact api request sent to the llm. Are there differences depending on the underlying model providers (anthropic / google etc)? What format are conversation events persisted in? Is it the exact network request previously sent/ an Open Hands format / an llmlite format? Create a file called - converstation-persistance-to-network-mapping-gemini.md with the final summary."
 )
+
 conversation.run()
 
 conversation.send_message("Great! Now delete that file.")
