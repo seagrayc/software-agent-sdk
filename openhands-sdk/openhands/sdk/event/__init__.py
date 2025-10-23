@@ -5,6 +5,7 @@ from openhands.sdk.event.condenser import (
     CondensationSummaryEvent,
 )
 from openhands.sdk.event.conversation_state import ConversationStateUpdateEvent
+from openhands.sdk.event.relevance_condenser import RelevanceCondensationDirective
 from openhands.sdk.event.llm_convertible import (
     ActionEvent,
     AgentErrorEvent,
@@ -33,6 +34,7 @@ __all__ = [
     "CondensationRequest",
     "CondensationSummaryEvent",
     "ConversationStateUpdateEvent",
+    "RelevanceCondensationDirective",
     "EventID",
     "ToolCallID",
 ]

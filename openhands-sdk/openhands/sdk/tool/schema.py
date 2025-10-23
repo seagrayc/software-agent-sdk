@@ -1,8 +1,9 @@
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from typing import Any, ClassVar, TypeVar
+from uuid import UUID
 
-from pydantic import ConfigDict, Field, create_model
+from pydantic import ConfigDict, Field, create_model, field_validator
 from rich.text import Text
 
 from openhands.sdk.llm import ImageContent, TextContent
@@ -210,3 +211,89 @@ class Observation(Schema, ABC):
         else:
             content.append("[no text content]")
         return content
+
+
+RELEVANCE_SUMMARY_MAX_CHARS = 1028
+
+
+class RelevanceCondensationAction(Action):
+    """Tool request payload for marking events as no longer relevant."""
+
+    event_id: str = Field(
+        description=(
+            "Identifier of the event to condense. Must reference a prior tool call or "
+            "observation event."
+        ),
+        examples=["cfb0d6d2-3ef1-4f75-8e36-8a6fdb7d6f80"],
+    )
+    summary_text: str = Field(
+        description=(
+            "One to three sentence summary that preserves continuity after the event "
+            "is forgotten."
+        ),
+        min_length=1,
+        max_length=RELEVANCE_SUMMARY_MAX_CHARS,
+    )
+
+    @field_validator("event_id")
+    @classmethod
+    def _validate_event_id(cls, value: str) -> str:
+        """Ensure the provided identifier is a valid UUID string."""
+        try:
+            UUID(value)
+        except (ValueError, TypeError) as exc:  # pragma: no cover - defensive
+            raise ValueError("event_id must be a valid UUID string") from exc
+        return value
+
+    @field_validator("summary_text")
+    @classmethod
+    def _normalize_summary(cls, value: str) -> str:
+        """Trim whitespace while respecting configured length bounds."""
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("summary_text cannot be empty or whitespace only")
+        if len(normalized) > RELEVANCE_SUMMARY_MAX_CHARS:
+            raise ValueError(
+                f"summary_text must be <= {RELEVANCE_SUMMARY_MAX_CHARS} characters"
+            )
+        return normalized
+
+
+class RelevanceCondensationObservation(Observation):
+    """Tool response indicating which directives were accepted."""
+
+    message: str = Field(
+        description="Acknowledgement presented to the requesting assistant.",
+        min_length=1,
+        max_length=RELEVANCE_SUMMARY_MAX_CHARS,
+    )
+    accepted_event_ids: list[str] = Field(
+        default_factory=list,
+        description="Event IDs accepted for condensation.",
+    )
+    rejected_event_ids: list[str] = Field(
+        default_factory=list,
+        description="Event IDs rejected with details in the message.",
+    )
+
+    @field_validator("accepted_event_ids", "rejected_event_ids")
+    @classmethod
+    def _validate_event_id_list(cls, values: list[str] | None) -> list[str]:
+        """Ensure every referenced identifier is a valid UUID."""
+        if values is None:
+            return []
+        unique: set[str] = set()
+        for value in values:
+            try:
+                UUID(value)
+            except (ValueError, TypeError) as exc:  # pragma: no cover - defensive
+                raise ValueError("All event IDs must be valid UUID strings") from exc
+            if value in unique:
+                raise ValueError("Duplicate event IDs are not permitted")
+            unique.add(value)
+        return values
+
+    @property
+    def to_llm_content(self) -> Sequence[TextContent | ImageContent]:
+        """Return a textual acknowledgement for the LLM."""
+        return [TextContent(text=self.message)]

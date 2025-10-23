@@ -9,6 +9,8 @@ from openhands.sdk.tool.registry import (
 from openhands.sdk.tool.schema import (
     Action,
     Observation,
+    RelevanceCondensationAction,
+    RelevanceCondensationObservation,
 )
 from openhands.sdk.tool.spec import Tool
 from openhands.sdk.tool.tool import (
@@ -29,6 +31,8 @@ __all__ = [
     "ExecutableTool",
     "Action",
     "Observation",
+    "RelevanceCondensationAction",
+    "RelevanceCondensationObservation",
     "FinishTool",
     "ThinkTool",
     "BUILT_IN_TOOLS",
