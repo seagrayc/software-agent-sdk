@@ -65,9 +65,11 @@ class LLMRelevanceCondenserTool(
 
     name: str = "relevance_condenser"
     description: str = TOOL_DESCRIPTION
-    action_type = RelevanceCondensationAction
-    observation_type = RelevanceCondensationObservation
-    annotations = ToolAnnotations(
+    action_type: type[RelevanceCondensationAction] = RelevanceCondensationAction
+    observation_type: type[
+        RelevanceCondensationObservation
+    ] = RelevanceCondensationObservation
+    annotations: ToolAnnotations = ToolAnnotations(
         title="mark_context_redundant",
         readOnlyHint=True,
         destructiveHint=False,

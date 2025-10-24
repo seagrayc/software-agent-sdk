@@ -13,6 +13,7 @@ from openhands.sdk.event.llm_convertible import (
     MessageEvent,
     ObservationEvent,
 )
+from openhands.sdk.event.relevance_condenser import RelevanceCondensationDirective
 from openhands.sdk.llm import Message, TextContent
 
 
@@ -876,3 +877,32 @@ def test_should_keep_event_other_event_types() -> None:
         message_event, action_tool_call_ids, observation_tool_call_ids
     )
     assert result is True
+
+
+def test_view_exposes_active_relevance_directives() -> None:
+    """Ensure relevance directives are surfaced until forgotten."""
+    message = message_event("Event 0")
+    directive = RelevanceCondensationDirective(
+        requested_event_id=message.id,
+        summary="no longer relevant",
+    )
+
+    view = View.from_events([message, directive])
+
+    assert [event.id for event in view.events] == [message.id]
+    assert [d.id for d in view.relevance_directives] == [directive.id]
+
+
+def test_view_drops_forgotten_relevance_directives() -> None:
+    """Directives should disappear once a condensation forgets them."""
+    message = message_event("Event 0")
+    directive = RelevanceCondensationDirective(
+        requested_event_id=message.id,
+        summary="no longer relevant",
+    )
+    condensation = Condensation(forgotten_event_ids=[directive.id])
+
+    view = View.from_events([message, directive, condensation])
+
+    assert [event.id for event in view.events] == [message.id]
+    assert view.relevance_directives == []

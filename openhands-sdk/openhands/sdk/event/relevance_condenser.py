@@ -10,7 +10,7 @@ from openhands.sdk.event.types import EventID, SourceType
 SUMMARY_MAX_CHARS: int = 1028
 
 class RelevanceCondensationDirective(Event):
-    """Directive emitted when the LLM-initiated tool requests condensation (in this case, will be a reduction of a previous message)."""
+    """Directive emitted when the LLM-initiated tool identifies previous tool requests that are no longer relevant, and can be redacted."""
 
     source: SourceType = "environment"
     requested_event_id: EventID = Field(
