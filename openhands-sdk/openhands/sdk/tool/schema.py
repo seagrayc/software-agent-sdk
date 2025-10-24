@@ -228,8 +228,8 @@ class RelevanceCondensationAction(Action):
     )
     summary_text: str = Field(
         description=(
-            "One to three sentence summary that preserves continuity after the event "
-            "is forgotten."
+            "One to three sentence summary used to replace the original observation "
+            "content (mask/redact) while preserving continuity."
         ),
         min_length=1,
         max_length=RELEVANCE_SUMMARY_MAX_CHARS,

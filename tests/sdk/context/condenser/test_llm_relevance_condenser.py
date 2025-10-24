@@ -6,7 +6,6 @@ from openhands.sdk.context.condenser.llm_relevance_condenser import (
     LLMRelevanceCondenser,
 )
 from openhands.sdk.context.view import View
-from openhands.sdk.event.condenser import Condensation, CondensationSummaryEvent
 from openhands.sdk.event.llm_convertible import (
     ActionEvent,
     AgentErrorEvent,
@@ -69,7 +68,7 @@ def test_condense_returns_view_when_no_directives() -> None:
 
 
 
-def test_reducts_observation() -> None:
+def test_redacts_observation_in_place() -> None:
     tool_call_id = str(uuid4())
     response_id = str(uuid4())
     action_event = _action(tool_call_id=tool_call_id, response_id=response_id)
@@ -89,22 +88,23 @@ def test_reducts_observation() -> None:
 
     view = View.from_events(events)
     condenser = LLMRelevanceCondenser()
+    redacted_view = condenser.condense(view)
 
-    condensation = condenser.condense(view)
+    assert isinstance(redacted_view, View)
+    assert len(redacted_view.events) == len(view.events) # replaced in place
+    # The observation at the same relative position should now be redacted
+    redacted_event = redacted_view.events[3]
+    assert isinstance(redacted_event, AgentErrorEvent)
+    assert redacted_event.tool_call_id == observation.tool_call_id
+    assert redacted_event.tool_name == observation.tool_name
+    assert redacted_event.error == "Response redacted: no longer actionable"
+    # Directives remain surfaced (idempotent application)
+    assert [d.id for d in redacted_view.relevance_directives] == [directive.id]
+    # Re-applying is a no-op
+    assert condenser.condense(redacted_view).events == redacted_view.events
 
-    assert isinstance(condensation, Condensation)
-    assert set(condensation.forgotten_event_ids) == {observation.id, directive.id}
-    assert condensation.summary == "Response redacted: no longer actionable"
-    assert condensation.summary_offset == 2
 
-    final_view = View.from_events([*events, condensation])
-    final_event_ids = [event.id for event in final_view.events]
-    assert observation.id not in final_event_ids
-    assert directive.id not in {d.id for d in final_view.relevance_directives}
-    assert isinstance(final_view.events[-1], CondensationSummaryEvent)
-
-
-def test_condense_skips_missing_targets_but_drops_directive() -> None:
+def test_condense_skips_missing_targets_and_keeps_directive() -> None:
     directive = RelevanceCondensationDirective(
         requested_event_id=str(uuid4()),
         summary="stale directive",
@@ -113,20 +113,18 @@ def test_condense_skips_missing_targets_but_drops_directive() -> None:
     view = View.from_events(events)
 
     condenser = LLMRelevanceCondenser()
-    condensation = condenser.condense(view)
+    result = condenser.condense(view)
 
-    assert isinstance(condensation, Condensation)
-    assert condensation.forgotten_event_ids == [directive.id]
-    assert condensation.summary == "Response redacted: stale directive"
-    assert condensation.summary_offset is None
-
-    final_view = View.from_events([*events, condensation])
-    assert [event.id for event in final_view.events] == [events[0].id]
-    assert final_view.relevance_directives == []
+    # View unchanged since target not found; directive remains active
+    assert isinstance(result, View)
+    assert [event.id for event in result.events] == [events[0].id]
+    assert [d.id for d in result.relevance_directives] == [directive.id]
 
 
 def test_condense_handles_duplicate_directives_once() -> None:
     tool_call_id = str(uuid4())
+    response_id = str(uuid4())
+    action = _action(tool_call_id=tool_call_id, response_id=response_id)
     observation = _observation(tool_call_id)
     directive_one = RelevanceCondensationDirective(
         requested_event_id=observation.id,
@@ -139,6 +137,7 @@ def test_condense_handles_duplicate_directives_once() -> None:
 
     events = [
         _message("user request"),
+        action,
         observation,
         directive_one,
         directive_two,
@@ -146,19 +145,18 @@ def test_condense_handles_duplicate_directives_once() -> None:
 
     view = View.from_events(events)
     condenser = LLMRelevanceCondenser()
-    condensation = condenser.condense(view)
+    redacted_view = condenser.condense(view)
 
-    assert isinstance(condensation, Condensation)
-    assert condensation.forgotten_event_ids.count(observation.id) == 1
-    assert set(condensation.forgotten_event_ids).issuperset(
-        {observation.id, directive_one.id, directive_two.id}
-    )
-
-    final_view = View.from_events([*events, condensation])
-    final_ids = [event.id for event in final_view.events]
-    assert observation.id not in final_ids
-    assert all(
-        directive.id not in {d.id for d in final_view.relevance_directives}
-        for directive in (directive_one, directive_two)
-    )
-    assert isinstance(final_view.events[-1], CondensationSummaryEvent)
+    assert isinstance(redacted_view, View)
+    # Original observation should be replaced exactly once
+    count_redacted = 0
+    for ev in redacted_view.events:
+        if isinstance(ev, AgentErrorEvent) and ev.tool_call_id == observation.tool_call_id:
+            if ev.error.startswith("Response redacted:"):
+                count_redacted += 1
+    assert count_redacted == 1
+    # Directives remain present for idempotence
+    assert {d.id for d in redacted_view.relevance_directives} == {
+        directive_one.id,
+        directive_two.id,
+    }

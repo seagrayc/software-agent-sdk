@@ -71,27 +71,22 @@ def test_relevance_condensing_loop_is_idempotent() -> None:
 
     condenser = LLMRelevanceCondenser()
     initial_view = View.from_events(state.events)
-    condensation = condenser.condense(initial_view)
+    redacted_view = condenser.condense(initial_view)
 
-    assert isinstance(condensation, Condensation)
-    assert observation_event.id in condensation.forgotten_event_ids
-    assert directive_event.id in condensation.forgotten_event_ids
-    assert condensation.summary == (
+    assert isinstance(redacted_view, View)
+    # The observation should be redacted inline and tool pairing preserved
+    assert len(redacted_view.events) == len(initial_view.events)
+    redacted = redacted_view.events[2]
+    assert isinstance(redacted, AgentErrorEvent)
+    assert redacted.tool_call_id == observation_event.tool_call_id
+    assert redacted.error == (
         "Response redacted: Directory listing failure no longer relevant."
     )
-    assert condensation.summary_offset == 2
 
-    # Agent would append the condensation event before the next step.
-    state.events.append(condensation)
-    condensed_view = View.from_events(state.events)
+    # Directive remains surfaced for idempotence
+    assert {d.id for d in redacted_view.relevance_directives} == {directive_event.id}
 
-    remaining_ids = [event.id for event in condensed_view.events]
-    assert observation_event.id not in remaining_ids
-    assert directive_event.id not in {
-        directive.id for directive in condensed_view.relevance_directives
-    }
-
-    # Running the condenser again should be a no-op (idempotent).
-    follow_up = condenser.condense(condensed_view)
+    # Running the condenser again should be a no-op (idempotent)
+    follow_up = condenser.condense(redacted_view)
     assert isinstance(follow_up, View)
-    assert follow_up.events == condensed_view.events
+    assert [e.id for e in follow_up.events] == [e.id for e in redacted_view.events]
