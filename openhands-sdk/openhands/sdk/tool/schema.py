@@ -217,14 +217,19 @@ RELEVANCE_SUMMARY_MAX_CHARS = 1028
 
 
 class RelevanceCondensationAction(Action):
-    """Tool request payload for marking events as no longer relevant."""
+    """Tool request payload for marking past tool observations as no longer relevant.
 
-    event_id: str = Field(
+    Identification: the `tool_call_id` associated with the observation to redact.
+    This is the function-calling identifier visible to the LLM and shared between
+    the action and observation.
+    """
+
+    tool_call_id: str = Field(
         description=(
-            "Identifier of the event to condense. Must reference a prior tool call or "
-            "observation event."
+            "Tool call identifier associated with the observation to condense."
         ),
-        examples=["cfb0d6d2-3ef1-4f75-8e36-8a6fdb7d6f80"],
+        examples=["call_1234abcdef"],
+        min_length=1,
     )
     summary_text: str = Field(
         description=(
@@ -234,16 +239,6 @@ class RelevanceCondensationAction(Action):
         min_length=1,
         max_length=RELEVANCE_SUMMARY_MAX_CHARS,
     )
-
-    @field_validator("event_id")
-    @classmethod
-    def _validate_event_id(cls, value: str) -> str:
-        """Ensure the provided identifier is a valid UUID string."""
-        try:
-            UUID(value)
-        except (ValueError, TypeError) as exc:  # pragma: no cover - defensive
-            raise ValueError("event_id must be a valid UUID string") from exc
-        return value
 
     @field_validator("summary_text")
     @classmethod
@@ -257,6 +252,8 @@ class RelevanceCondensationAction(Action):
                 f"summary_text must be <= {RELEVANCE_SUMMARY_MAX_CHARS} characters"
             )
         return normalized
+
+    # No custom model_validate needed; tool_call_id is required
 
 
 class RelevanceCondensationObservation(Observation):

@@ -61,7 +61,7 @@ def test_relevance_condensing_loop_is_idempotent() -> None:
     tool = LLMRelevanceCondenserTool.create(state)[0]
     executable = tool.as_executable()
     action = RelevanceCondensationAction(
-        event_id=observation_event.id,
+        tool_call_id=observation_event.tool_call_id,
         summary_text="Directory listing failure no longer relevant.",
     )
 

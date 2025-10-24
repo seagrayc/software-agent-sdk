@@ -6,6 +6,7 @@ from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 from openhands.sdk.event.relevance_condenser import RelevanceCondensationDirective
+from openhands.sdk.event.llm_convertible import ObservationBaseEvent
 from openhands.sdk.tool import ToolAnnotations, ToolDefinition, ToolExecutor
 from openhands.sdk.tool.schema import (
     RelevanceCondensationAction,
@@ -18,15 +19,21 @@ if TYPE_CHECKING:
 
 TOOL_DESCRIPTION = """Background tool to mark past tool outputs as no longer relevant.
 
-Provide the identifier of a prior tool call that no
-longer aids the current discussion, plus a short reasoned summary explaining the redaction. The condenser will mask (redact) the observation content and replace it with your concise summary while
-leaving the original tool invocation in the chat history. Nothing is deleted; masking
-preserves continuity and discourages the LLM from re-invoking the same call.
+Provide an identifier for a prior tool observation that no longer aids the
+current discussion, plus a short reasoned summary explaining the redaction.
+The condenser will mask (redact) the observation content and replace it with
+your concise summary while leaving the original tool invocation in the chat
+history. Nothing is deleted; masking preserves continuity and discourages
+duplicate re-invocation.
+
+Identification:
+- tool_call_id: Provide the tool message identifier the model sees in
+  function-calling contexts.
 
 Usage notes:
-- Target the observation event ID when possible; only observation content is masked.
-- Summaries must be short (1–3 sentences), substantially shorter than the original,
-  and should not introduce new facts.
+- Only observation content is masked; original action/tool invocation remains.
+- Summaries must be short (1–3 sentences), substantially shorter than the
+  original, and should not introduce new facts.
 
 Guardrails:
 - Only reference tool calls/observations you are confident are no longer relevant.
@@ -44,8 +51,27 @@ class RelevanceCondenserExecutor(
     def __call__(
         self, action: RelevanceCondensationAction
     ) -> RelevanceCondensationObservation:
+        # Find the most recent observation with the given tool_call_id
+        target_event_id: str | None = None
+        for ev in reversed(self._state.events):
+            if (
+                isinstance(ev, ObservationBaseEvent)
+                and ev.tool_call_id == action.tool_call_id
+            ):
+                target_event_id = ev.id
+                break
+
+        if target_event_id is None:
+            return RelevanceCondensationObservation(
+                message=(
+                    "No matching observation found for tool_call_id; cannot record directive."
+                ),
+                accepted_event_ids=[],
+                rejected_event_ids=[action.tool_call_id],
+            )
+
         directive = RelevanceCondensationDirective(
-            requested_event_id=action.event_id,
+            requested_event_id=target_event_id,
             summary=action.summary_text,
         )
 
@@ -53,11 +79,11 @@ class RelevanceCondenserExecutor(
 
         message = (
             "Condensation directive recorded. The condenser will mask observation "
-            f"for {action.event_id} when applied (tool invocation is retained)."
+            f"for tool_call_id={action.tool_call_id} when applied (tool invocation is retained)."
         )
         return RelevanceCondensationObservation(
             message=message,
-            accepted_event_ids=[action.event_id],
+            accepted_event_ids=[target_event_id],
             rejected_event_ids=[],
         )
 
