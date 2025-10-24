@@ -96,7 +96,72 @@ These hooks determine how any relevance-driven strategy must surface its decisio
    - **Agent loop regression** (`tests/cross/test_agent_relevance_condensing.py`): stage a scripted conversation similar to `tests/cross/test_agent_reconciliation.py` where the tool issues a directive, the subsequent agent step applies the condensation, and repeated steps leave the state stable while surfacing confirmations back to the LLM.
 
 ## Appendix — Testing Patterns
-- **Pytest unit tests with helper factories** — see [`tests/sdk/context/condenser/test_llm_summarizing_condenser.py`](../../tests/sdk/context/condenser/test_llm_summarizing_condenser.py) for using lightweight event builders and `MagicMock` LLMs; this pattern will validate `LLMRelevanceCondenser` directive handling in isolation.
-- **Schema-focused validation suites** — [`tests/sdk/tool/test_tool_definition.py`](../../tests/sdk/tool/test_tool_definition.py) demonstrates asserting pydantic field constraints and executor behaviour; new tool tests will reuse this style to cover directive payload validation and acknowledgement messaging.
-- **Stateful conversation regressions** — [`tests/cross/test_agent_reconciliation.py`](../../tests/cross/test_agent_reconciliation.py) shows how to persist and restart conversations to catch regressions; the relevance condenser integration test will adopt this approach to confirm directives survive across agent steps.
-- **View invariant checks** — [`tests/sdk/context/test_view.py`](../../tests/sdk/context/test_view.py) captures expectations around how condensations mutate views; additional cases will extend these invariants to the relevance-driven pruning path so the feature remains covered end-to-end.
+- **Pytest unit tests with helper factories** — see `tests/sdk/context/condenser/test_llm_summarizing_condenser.py` for using lightweight event builders and `MagicMock` LLMs; this pattern validates condenser logic in isolation and is mirrored by `tests/sdk/context/condenser/test_llm_relevance_condenser.py` for relevance directives.
+- **Schema-focused validation suites** — `tests/sdk/tool/test_tool_definition.py` demonstrates asserting pydantic field constraints and executor behaviour; `tests/sdk/tool/test_llm_relevance_condenser_tool.py` follows this to cover directive payload validation and acknowledgement messaging.
+- **Stateful conversation regressions** — `tests/cross/test_agent_reconciliation.py` shows how to persist and restart conversations to catch regressions; a relevance condenser integration can adopt this to confirm directives persist and remain idempotent across agent steps.
+- **View invariant checks** — `tests/sdk/context/test_view.py` defines how condensations mutate views and how relevance directives surface; keep ordering, tool-call pairing, and idempotence guarantees intact.
+
+Agent loop exercising (end-to-end-ish)
+- Existing loop harness: `tests/sdk/agent/test_agent_step_responses_gating.py` is the canonical pattern for unit-testing `Agent.step` by injecting a stub LLM and asserting which LLM method was called and what was emitted via `on_event`. Reuse this style to cover the condenser branch in `openhands-sdk/openhands/sdk/agent/agent.py:149–169`.
+- Cross-level relevance flow: `tests/cross/test_agent_relevance_condensing.py` already simulates the tool → directive → condenser → redacted View flow, but drives the condenser directly. Use it as a reference for redaction semantics (idempotence, preserved tool pairing), then add an Agent-level test that goes through `Agent.step`.
+
+Recommended Agent.step tests for condenser behavior
+- Condenser returns View (forward to LLM)
+  - Goal: Ensure `Agent.step` runs the condenser, obtains a `View`, and forwards the resulting LLM-convertible events to the LLM with redactions applied.
+  - Setup:
+    - Agent with `condenser=LLMRelevanceCondenser()` and the relevance tool available.
+    - Seed `state.events` with: user `MessageEvent` → `ActionEvent` → `ObservationEvent` (or `AgentErrorEvent`).
+    - Invoke `LLMRelevanceCondenserTool` to append a `RelevanceCondensationDirective` targeting the observation.
+    - Stub LLM that records the `messages` passed to `completion`/`responses`.
+  - Assert:
+    - `Agent.step` calls the LLM exactly once (no `Condensation` short-circuit).
+    - The messages built from the view contain the redacted observation text (e.g., starts with `"Response redacted:"`) and preserve the tool-call pairing.
+  - Skeleton:
+    ```python
+    # tests/sdk/agent/test_agent_step_relevance_condenser.py
+    class RecordingLLM(LLM):
+        def completion(self, *, messages, tools=None, **kwargs):
+            self.called = True; self.last_messages = messages
+            return LLMResponse(message=Message(role="assistant", content=[]), metrics=..., raw_response=...)
+
+    def test_agent_step_applies_relevance_redactions_before_llm():
+        llm = RecordingLLM(model="test", usage_id="test-llm")
+        agent = Agent(llm=llm, tools=[Tool(name="relevance_condenser")], condenser=LLMRelevanceCondenser())
+        convo = Conversation(agent=agent)
+        # seed user → action → observation
+        # append directive via tool.as_executable()(RelevanceCondensationAction(...))
+        emitted = []
+        agent.step(convo.state, on_event=lambda e: emitted.append(e))
+        assert getattr(llm, "called", False)
+        # Inspect llm.last_messages for redaction content and preserved pairing
+    ```
+
+- Condenser returns Condensation (short-circuit before LLM)
+  - Goal: Ensure `Agent.step` emits a `Condensation` via `on_event` and returns without calling the LLM when a condenser returns `Condensation()` (see `openhands-sdk/openhands/sdk/agent/agent.py:161–163`).
+  - Setup:
+    - Use a minimal stub condenser implementing `CondenserBase` that always returns a `Condensation` (or configure `LLMSummarizingCondenser` so `should_condense(view)` is True).
+    - Stub LLM that would record any call if made.
+  - Assert:
+    - `on_event` receives exactly one `Condensation`.
+    - LLM is not called.
+  - Skeleton:
+    ```python
+    class ImmediateCondense(CondenserBase):
+        def condense(self, view: View) -> Condensation:
+            return Condensation(forgotten_event_ids=[], summary="trim", summary_offset=0)
+
+    def test_agent_step_emits_condensation_and_skips_llm():
+        llm = RecordingLLM(model="test", usage_id="test-llm")
+        agent = Agent(llm=llm, tools=[], condenser=ImmediateCondense())
+        convo = Conversation(agent=agent)
+        emitted = []
+        agent.step(convo.state, on_event=lambda e: emitted.append(e))
+        assert any(isinstance(e, Condensation) for e in emitted)
+        assert not getattr(llm, "called", False)
+    ```
+
+Notes and gotchas
+- Always build the LLM input via `View.from_events(state.events)`; this enforces filtering of unmatched tool pairs and hides condensation events from the LLM-facing slice.
+- Redaction idempotence: directives should persist in `view.relevance_directives` so re-running the condenser is a no-op; `tests/cross/test_agent_relevance_condensing.py` demonstrates this expectation.
+- Preserve tool-call pairing: when redacting, keep `tool_call_id` and event positions intact; assert that the observation still aligns with its action.
+- Consider both code paths: `View()` continues to LLM; `Condensation()` emits the event and returns early.
