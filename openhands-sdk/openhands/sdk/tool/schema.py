@@ -240,22 +240,6 @@ class RelevanceCondensationAction(Action):
         max_length=RELEVANCE_SUMMARY_MAX_CHARS,
     )
 
-    @field_validator("summary_text")
-    @classmethod
-    def _normalize_summary(cls, value: str) -> str:
-        """Trim whitespace while respecting configured length bounds."""
-        normalized = value.strip()
-        if not normalized:
-            raise ValueError("summary_text cannot be empty or whitespace only")
-        if len(normalized) > RELEVANCE_SUMMARY_MAX_CHARS:
-            raise ValueError(
-                f"summary_text must be <= {RELEVANCE_SUMMARY_MAX_CHARS} characters"
-            )
-        return normalized
-
-    # No custom model_validate needed; tool_call_id is required
-
-
 class RelevanceCondensationObservation(Observation):
     """Tool response indicating which directives were accepted."""
 
@@ -272,23 +256,6 @@ class RelevanceCondensationObservation(Observation):
         default_factory=list,
         description="Event IDs rejected with details in the message.",
     )
-
-    @field_validator("accepted_event_ids", "rejected_event_ids")
-    @classmethod
-    def _validate_event_id_list(cls, values: list[str] | None) -> list[str]:
-        """Ensure every referenced identifier is a valid UUID."""
-        if values is None:
-            return []
-        unique: set[str] = set()
-        for value in values:
-            try:
-                UUID(value)
-            except (ValueError, TypeError) as exc:  # pragma: no cover - defensive
-                raise ValueError("All event IDs must be valid UUID strings") from exc
-            if value in unique:
-                raise ValueError("Duplicate event IDs are not permitted")
-            unique.add(value)
-        return values
 
     @property
     def to_llm_content(self) -> Sequence[TextContent | ImageContent]:

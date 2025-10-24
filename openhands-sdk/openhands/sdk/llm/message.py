@@ -250,7 +250,7 @@ class Message(BaseModel):
             return [TextContent(text=v)]
         return v
 
-    def to_chat_dict(self) -> dict[str, Any]:
+    def to_chat_dict(self, i: int | None) -> dict[str, Any]:
         """Serialize message for OpenAI Chat Completions.
 
         Chooses the appropriate content serializer and then injects threading keys:
@@ -277,6 +277,12 @@ class Message(BaseModel):
             )
             message_dict["tool_call_id"] = self.tool_call_id
             message_dict["name"] = self.name
+
+        if self.role == "tool" and not self.tool_calls:
+            for item in message_dict["content"]:
+                if  item.get("type") == "text":
+                    item["text"] = f"[tool_call_direct_index: {i}] " + item.get("text", "")
+
 
         return message_dict
 

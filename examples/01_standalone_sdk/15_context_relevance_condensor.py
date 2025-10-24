@@ -33,6 +33,7 @@ from __future__ import annotations
 import os
 import tempfile
 from pathlib import Path
+import uuid
 
 from pydantic import SecretStr
 
@@ -137,15 +138,16 @@ def main() -> None:
         model=model,
         base_url=base_url,
         api_key=SecretStr(api_key),
+        native_tool_calling=True,
     )
 
     # Register tools
     register_tool("FileEditorTool", FileEditorTool)
-    register_tool("RelevanceCondenser", LLMRelevanceCondenserTool)
+    register_tool("relevance_condenser", LLMRelevanceCondenserTool)
 
     tools = [
         Tool(name="FileEditorTool"),
-        Tool(name="RelevanceCondenser"),
+        Tool(name="relevance_condenser"),
     ]
 
     # Use LLMRelevanceCondenser to apply directives in-place
@@ -170,7 +172,7 @@ def main() -> None:
             "You are in a secret hunt inside a temporary workspace.\n"
             f"Workspace root: {root}\n\n"
             "Rules:\n"
-            "- Use only the FileEditorTool with the 'view' command to list directories and view files. Do not use search tools.\n"
+            "- Use only the 'FileEditorTool' with the 'view' command to list directories and view files.\n"
             "- Always use absolute paths under the workspace root.\n"
             "- Filenames contain no clues. At each level, you must OPEN files and READ their contents to find the next secret.\n"
             "- Exactly one file per level contains either 'NEXT SECRET: <number>' or 'FINAL SECRET: 42'. Others are misleading.\n"
@@ -179,14 +181,22 @@ def main() -> None:
             "- Explore all levels until you find the final secret.\n"
         )
 
+        env_cid = os.getenv("CONVERSATION_ID")
+        conversation_id = None
+        if env_cid:
+            try:
+                conversation_id = uuid.UUID(env_cid)
+            except Exception:
+                conversation_id = None
         conversation = Conversation(
             agent=agent,
             callbacks=[conversation_callback],
             persistence_dir="./.conversations",
             workspace=str(root),
+            conversation_id=conversation_id,
         )
 
-        print("Starting secret hunt with relevance condenser...")
+        print("Start/ continuing secret hunt with relevance condenser...")
 
         conversation.send_message(instruction)
         conversation.run()

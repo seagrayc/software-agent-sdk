@@ -891,7 +891,7 @@ class LLM(BaseModel, RetryMixin, NonNativeToolCallingMixin):
             ):
                 message.force_string_serializer = True
 
-        formatted_messages = [message.to_chat_dict() for message in messages]
+        formatted_messages = [message.to_chat_dict(i) for i, message in enumerate(messages)]
 
         return formatted_messages
 
