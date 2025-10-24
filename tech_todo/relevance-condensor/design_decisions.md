@@ -4,21 +4,23 @@
 - Minimize stale tool calls and observations in the running conversation while preserving the thread with relevant context for the current task.
 - Allow the LLM to keep working with the most relevant subset of actions, observations, and summaries without losing grounding needed for future decisions.
 
+- When a prior tool call is no longer relevant or actionable, mask (redact) it rather than remove it. Keep the original tool invocation event; replace its observation with a concise redaction note that includes the reason. The redaction must be much shorter than the original output to save tokens while preserving continuity and discouraging duplicate re-invocation.
+
 
 ## Existing Integration Points
 - Condensers implement `condense(view)` and return either a trimmed `View` or a `Condensation` event (`openhands-sdk/openhands/sdk/context/condenser/base.py`).
 - The agent calls the condenser once per `step()` before sampling the next LLM action, and short-circuits to handle emitted `Condensation` events (`openhands-sdk/openhands/sdk/agent/agent.py`).
 - `View.from_events(...)` already maps the conversation history to the LLM-facing slice, respecting previous condensations, summaries, and condensation requests. It also filters unmatched tool-call / observation pairs to avoid dangling batches (`openhands-sdk/openhands/sdk/context/view.py`).
-- `LLMSummarizingCondenser` shows how a condenser can call an LLM directly to summarize forgotten segments while inserting a `Condensation` event that records forgotten IDs and an optional synopsis (`openhands-sdk/openhands/sdk/context/condenser/llm_summarizing_condenser.py`).
+- `LLMSummarizingCondenser` shows how a condenser can call an LLM directly to summarize forgotten segments while inserting a `Condensation` event that records masked/forgotten IDs and an optional synopsis (`openhands-sdk/openhands/sdk/context/condenser/llm_summarizing_condenser.py`).
 
 These hooks determine how any relevance-driven strategy must surface its decisions and how the agent reacts to them.
 
 ## Option 1 — (Selected) Tool-Driven Relevance Condenser
 
 ### Concept
-- Introduce `LLMRelevanceCondenserTool` that is always available for the LLM to invoke. Expectations is for LLM to invoke as a "background" task, using parallel tool calling to perform concurrently with "the next step" in its plan execution. i.e. View contents of the next round of files to review; whilst flagging previous tool responses as no longer relevant.
-- When the LLM believes some tool calls or observations are no longer needed, it invokes the tool with the event IDs and a reduction summary to maintain consistency.
-- The companion `LLMRelevanceCondenser` which is invoked by the Agnet on every step, will apply the reductions based on previous tool calls made by the LLM.
+- Introduce `LLMRelevanceCondenserTool` that is always available for the LLM to invoke. Expectation is for the LLM to invoke as a "background" task, using parallel tool calling to perform concurrently with "the next step" in its plan execution. For example, view contents of the next round of files to review while flagging previous tool responses as no longer relevant.
+- When the LLM believes some tool calls or observations are no longer needed, it invokes the tool with the event IDs and a redaction explanation to maintain consistency. The condenser must mask the observation(s) of those tool calls instead of deleting the tool invocation(s).
+- The companion `LLMRelevanceCondenser`, which is invoked by the Agent on every step, will apply the reductions based on previous tool calls made by the LLM.
 
 ### Benefits
 - The LLM schedules condensation in parallel with other tool usage; no additional turns are forced solely for summarization.
@@ -30,15 +32,15 @@ These hooks determine how any relevance-driven strategy must surface its decisio
 - Higher prompt surface: the tool instruction must include guardrails to prevent removal of essential actions, and to ensure the LLM references canonical event IDs.
 
 ### Implementation Sketch
-- Tool input: `{event_id, summary_text}` summary_text must provide a 1 - 3 sentence explanation of reduction, to keep continuity.
-- Tool output: acknowledgement message; the actual condersor logic runs asyncronously to the tool invocation.
+- Tool input: `{event_id, summary_text}`. `summary_text` must provide a 1–3 sentence explanation of the redaction to keep continuity.
+- Tool output: acknowledgement message; the actual condenser logic runs asynchronously to the tool invocation.
 
 ## Option 2 — (Rejected) Autonomous LLM Summarizing Condenser (Pull Model)
 
 ### Concept
 - Extend the `RollingCondenser` pattern, similar to `LLMSummarizingCondenser`, but change `should_condense(view)` to look for relevance triggers (e.g., number of tool calls exceeding threshold, inactivity on tool outputs).
 - When triggered, the condenser calls `self.llm.completion(...)` to classify recent tool calls as stale vs. keep-worthy and to generate a replacement summary.
-- Outputs a `Condensation` event that forgets stale tool calls and optionally injects a synthesized summary at `summary_offset`.
+- Outputs a `Condensation` event that masks stale tool call observations (keeping the original tool invocation events) and optionally injects a synthesized summary at `summary_offset`.
 
 ### Challenges
 - Condenser runs sequentially in the agent loop, so any condensation requires waiting for its additional LLM request before the main action sample proceeds.
@@ -50,8 +52,16 @@ These hooks determine how any relevance-driven strategy must surface its decisio
 ### Flow Overview
 - LLM issues potentially multiple `LLMRelevanceCondenserTool` calls with `{event_id: ..., summary_text: ...}` while it continues other work.
 - Tool executor validates the payload, records a structured reduction request event, and responds with an acknowledgement message that the agent relays to the LLM.
-- On the following `Agent.step`, the `LLMRelevanceCondenser` inspects the `View`, replays all stored reduction directives against the current event list, and emits a `Condensation` that forgets the requested events and injects the provided synopsis.
+- On the following `Agent.step`, the `LLMRelevanceCondenser` inspects the `View`, replays all stored reduction directives against the current event list, and emits a `Condensation` that applies masks to the requested event observations and injects the provided synopsis. The original tool invocation events remain in the history, paired with the redacted observation placeholders.
 - The condensed view feeds back into normal action selection, keeping the conversation thread tight without an extra turn.
+
+## Masking vs. Removal (Clarification)
+
+- The flow results masking results, not deleting stale or non-actionable tool calls.
+- Keep the original tool invocation event (including parameters) to maintain causal continuity and provide evidence that the call already occurred.
+- Replace the associated observation payload with a concise redaction note, e.g., "Observation redacted: superseded by newer results — no longer relevant." Include the reason from `summary_text`.
+- Ensure the redaction is significantly shorter than the original observation to reduce context footprint without losing continuity or prompting duplicate tool calls.
+- Rationale: retaining the invocation preserves conversation structure and intent, while concise masking recovers tokens and signals completion/irrelevance.
 
 ### Implementation Plan
 1. **Define tool contract and models**

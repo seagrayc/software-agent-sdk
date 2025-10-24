@@ -16,17 +16,21 @@ if TYPE_CHECKING:
     from openhands.sdk.conversation.state import ConversationState
 
 
-TOOL_DESCRIPTION = """Background tool for flagging stale, or no longer relevant tool interactions.
+TOOL_DESCRIPTION = """Background tool to mark past tool outputs as no longer relevant.
 
-Provide the identifier of a prior tool call or observation that no longer aids the
-current discussion, along with a short synopsis to preserve continuity. The condenser will
-remove the event when safe while keeping the supplied summary available to the agent.
+Provide the identifier of a prior tool call that no
+longer aids the current discussion, plus a short reasoned summary explaining the redaction. The condenser will mask (redact) the observation content and replace it with your concise summary while
+leaving the original tool invocation in the chat history. Nothing is deleted; masking
+preserves continuity and discourages the LLM from re-invoking the same call.
+
+Usage notes:
+- Target the observation event ID when possible; only observation content is masked.
+- Summaries must be short (1–3 sentences), substantially shorter than the original,
+  and should not introduce new facts.
 
 Guardrails:
-- Only target tool calls or their observations that you are confident are no longer
-  relevant.
-- Never reference user messages, system prompts, or security warnings.
-- Keep summaries concise (1–3 sentences) and avoid introducing new facts."""
+- Only reference tool calls/observations you are confident are no longer relevant.
+- Never target user messages, system prompts, or security warnings."""
 
 
 class RelevanceCondenserExecutor(
@@ -48,8 +52,8 @@ class RelevanceCondenserExecutor(
         self._state.events.append(directive)
 
         message = (
-            "Condensation directive recorded. The condenser will retire "
-            f"{action.event_id} when applied."
+            "Condensation directive recorded. The condenser will mask observation "
+            f"for {action.event_id} when applied (tool invocation is retained)."
         )
         return RelevanceCondensationObservation(
             message=message,

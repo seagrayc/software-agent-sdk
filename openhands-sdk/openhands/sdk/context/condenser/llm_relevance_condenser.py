@@ -2,71 +2,92 @@ from logging import getLogger
 
 from openhands.sdk.context.condenser.base import CondenserBase
 from openhands.sdk.context.view import View
-from openhands.sdk.event.condenser import Condensation
 from openhands.sdk.event.llm_convertible import ObservationBaseEvent
+from openhands.sdk.event.llm_convertible.observation import (
+    AgentErrorEvent,
+    ObservationEvent,
+    UserRejectObservation,
+)
+from openhands.sdk.tool.schema import RelevanceCondensationObservation
 
 
 logger = getLogger(__name__)
 
 
 class LLMRelevanceCondenser(CondenserBase):
-    """Apply tool-initiated relevance directives without losing surrounding context."""
+    """Apply tool-initiated relevance directives in-place and return an updated View.
 
-    def condense(self, view: View) -> View | Condensation:
+    Simplified behaviour:
+    - Directly returns the modified View
+    - Re-apply all relevance directives present in the View by masking each
+      targeted observation in place with the redaction summary
+    - Leave directives intact; repeated application is a no-op
+    """
+
+    def condense(self, view: View) -> View:
         directives = getattr(view, "relevance_directives", [])
         if not directives:
             return view
 
-        event_lookup = {
-            event.id: (index, event) for index, event in enumerate(view.events)
-        }
+        # Map target observation id → redaction message
+        redactions: dict[str, str] = {}
+        for d in directives:
+            msg = d.summary.strip()
+            if msg:
+                redactions[d.requested_event_id] = f"Response redacted: {msg}"
 
-        forgotten_ids: list[str] = []
-        seen_ids: set[str] = set()
-        summary_lines: list[str] = []
-        summary_offsets: list[int] = []
-
-        for directive in directives:
-            target_id = directive.requested_event_id
-            target_entry = event_lookup.get(target_id)
-
-            if target_entry is None:
-                logger.debug(
-                    "Relevance directive %s target %s not present in view; skipping",
-                    directive.id,
-                    target_id,
-                )
-            else:
-                index, target_event = target_entry
-                if isinstance(target_event, ObservationBaseEvent):
-                    if target_id not in seen_ids:
-                        forgotten_ids.append(target_id)
-                        seen_ids.add(target_id)
-                        summary_offsets.append(index)
-                else:
-                    logger.debug(
-                        "Relevance directive %s target %s is not an observation; "
-                        "keeping event in view",
-                        directive.id,
-                        target_id,
-                    )
-
-            if directive.id not in seen_ids:
-                forgotten_ids.append(directive.id)
-                seen_ids.add(directive.id)
-
-            summary_text = directive.summary.strip()
-            if summary_text:
-                summary_lines.append(f"Response redacted: {summary_text}")
-
-        if not forgotten_ids:
+        if not redactions:
             return view
 
-        summary = "\n".join(summary_lines) if summary_lines else None
-        summary_offset = min(summary_offsets) if summary_offsets else None
+        # Replace each targeted observation in-place with a minimal redacted observation
+        replaced = 0
+        new_events = []
+        for ev in view.events:
+            redaction = redactions.get(ev.id)
+            if redaction and isinstance(ev, ObservationBaseEvent):
+                if isinstance(ev, ObservationEvent):
+                    new_obs = RelevanceCondensationObservation(message=redaction)
+                    new_ev = ObservationEvent(
+                        tool_name=ev.tool_name,
+                        tool_call_id=ev.tool_call_id,
+                        action_id=ev.action_id,
+                        observation=new_obs,
+                    )
+                elif isinstance(ev, AgentErrorEvent):
+                    new_ev = AgentErrorEvent(
+                        tool_name=ev.tool_name,
+                        tool_call_id=ev.tool_call_id,
+                        error=redaction,
+                    )
+                elif isinstance(ev, UserRejectObservation):
+                    new_ev = UserRejectObservation(
+                        tool_name=ev.tool_name,
+                        tool_call_id=ev.tool_call_id,
+                        action_id=ev.action_id,
+                        rejection_reason=redaction,
+                    )
+                else:
+                    # Fallback: ensure we keep tool pairing via AgentErrorEvent
+                    new_ev = AgentErrorEvent(
+                        tool_name=ev.tool_name,
+                        tool_call_id=ev.tool_call_id,
+                        error=redaction,
+                    )
+                new_events.append(new_ev)
+                replaced += 1
+            else:
+                new_events.append(ev)
 
-        return Condensation(
-            forgotten_event_ids=forgotten_ids,
-            summary=summary,
-            summary_offset=summary_offset,
+        logger.debug(
+            "Applied %d relevance directives; redacted %d observations in-place",
+            len(directives),
+            replaced,
+        )
+
+        # Return a fresh View; directives remain so reapplying is idempotent
+        return View(
+            events=new_events,
+            unhandled_condensation_request=view.unhandled_condensation_request,
+            condensations=view.condensations,
+            relevance_directives=view.relevance_directives,
         )
