@@ -883,7 +883,7 @@ def test_view_exposes_active_relevance_directives() -> None:
     """Ensure relevance directives are surfaced until forgotten."""
     message = message_event("Event 0")
     directive = RelevanceCondensationDirective(
-        requested_event_id=message.id,
+        tool_call_id=message.id,
         summary="no longer relevant",
     )
 
@@ -897,7 +897,7 @@ def test_view_drops_forgotten_relevance_directives() -> None:
     """Directives should disappear once a condensation forgets them."""
     message = message_event("Event 0")
     directive = RelevanceCondensationDirective(
-        requested_event_id=message.id,
+        tool_call_id=message.id,
         summary="no longer relevant",
     )
     condensation = Condensation(forgotten_event_ids=[directive.id])

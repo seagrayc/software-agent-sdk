@@ -4,6 +4,7 @@ from typing import Any, ClassVar, TypeVar
 from uuid import UUID
 
 from pydantic import ConfigDict, Field, create_model, field_validator
+from pydantic import model_validator
 from rich.text import Text
 
 from openhands.sdk.llm import ImageContent, TextContent
@@ -219,17 +220,26 @@ RELEVANCE_SUMMARY_MAX_CHARS = 1028
 class RelevanceCondensationAction(Action):
     """Tool request payload for marking past tool observations as no longer relevant.
 
-    Identification: the `tool_call_id` associated with the observation to redact.
-    This is the function-calling identifier visible to the LLM and shared between
-    the action and observation.
+    Identification supports either:
+    - tool_call_id: the observation's tool_call identifier (string) to resolve the target event
+    - tool_call_direct_index: direct index of the tool message in the formatted LLM messages
+    At least one of these must be provided. If both are provided, the direct index takes precedence.
     """
 
-    tool_call_id: str = Field(
+    tool_call_id: str | None = Field(
+        default=None,
         description=(
             "Tool call identifier associated with the observation to condense."
         ),
         examples=["call_1234abcdef"],
         min_length=1,
+    )
+    tool_call_direct_index: int | None = Field(
+        default=None,
+        ge=0,
+        description=(
+            "Direct index of the 'tool' message in the formatted LLM message list; points to the response to redact."
+        ),
     )
     summary_text: str = Field(
         description=(
@@ -239,6 +249,22 @@ class RelevanceCondensationAction(Action):
         min_length=1,
         max_length=RELEVANCE_SUMMARY_MAX_CHARS,
     )
+
+    @field_validator("summary_text")
+    @classmethod
+    def _validate_summary_text(cls, v: str) -> str:
+        s = v.strip()
+        if not s:
+            raise ValueError("summary_text cannot be empty or whitespace only")
+        return s
+
+    @model_validator(mode="after")
+    def _validate_identifier(self) -> "RelevanceCondensationAction":
+        if self.tool_call_id is None and self.tool_call_direct_index is None:
+            raise ValueError(
+                "Either tool_call_id or tool_call_direct_index must be provided"
+            )
+        return self
 
 class RelevanceCondensationObservation(Observation):
     """Tool response indicating which directives were accepted."""

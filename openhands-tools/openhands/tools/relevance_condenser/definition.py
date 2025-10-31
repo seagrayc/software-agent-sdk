@@ -29,6 +29,8 @@ duplicate re-invocation.
 Identification:
 - tool_call_id: Provide the tool message identifier the model sees in
   function-calling contexts.
+- tool_call_direct_index: Provide the direct message index for the tool response
+  to redact (as seen by the LLM after formatting).
 
 Usage notes:
 - Only observation content is masked; original action/tool invocation remains.
@@ -51,39 +53,22 @@ class RelevanceCondenserExecutor(
     def __call__(
         self, action: RelevanceCondensationAction
     ) -> RelevanceCondensationObservation:
-        # Find the most recent observation with the given tool_call_id
-        target_event_id: str | None = None
-        for ev in reversed(self._state.events):
-            if (
-                isinstance(ev, ObservationBaseEvent)
-                and ev.tool_call_id == action.tool_call_id
-            ):
-                target_event_id = ev.id
-                break
 
-        if target_event_id is None:
-            return RelevanceCondensationObservation(
-                message=(
-                    "No matching observation found for tool_call_id; cannot record directive."
-                ),
-                accepted_event_ids=[],
-                rejected_event_ids=[action.tool_call_id],
-            )
 
         directive = RelevanceCondensationDirective(
-            requested_event_id=target_event_id,
+            tool_call_id=action.tool_call_id,
+            tool_call_direct_index=action.tool_call_direct_index,
             summary=action.summary_text,
         )
 
         self._state.events.append(directive)
 
         message = (
-            "Condensation directive recorded. The condenser will mask observation "
-            f"for tool_call_id={action.tool_call_id} when applied (tool invocation is retained)."
+            "Condensation directive recorded; condenser will apply redaction."
         )
         return RelevanceCondensationObservation(
             message=message,
-            accepted_event_ids=[target_event_id],
+            accepted_event_ids=[action.tool_call_id, action.tool_call_direct_index] # filter not null / split,
             rejected_event_ids=[],
         )
 

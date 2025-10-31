@@ -10,14 +10,27 @@ from openhands.sdk.event.types import EventID, SourceType
 SUMMARY_MAX_CHARS: int = 1028
 
 class RelevanceCondensationDirective(Event):
-    """Directive emitted when the LLM-initiated tool identifies previous tool requests that are no longer relevant, and can be redacted."""
+    """Directive emitted when the LLM-initiated tool identifies previous tool requests that are no longer relevant, and can be redacted.
+
+    Identification supports two forms:
+    - tool_call_id: the target event id (UUID) to redact
+    - tool_call_direct_index: message index pointing directly to the tool result in the LLM-formatted messages
+    """
 
     source: SourceType = "environment"
-    requested_event_id: EventID = Field(
+    tool_call_id: EventID | None = Field(
+        default=None,
         description=(
-            "Identifier of the event the LLM has marked as safe to condense."
+            "Identifier (event id, UUID) of the observation the LLM has marked as safe to condense."
         ),
         examples=["cfb0d6d2-3ef1-4f75-8e36-8a6fdb7d6f80"],
+    )
+    tool_call_direct_index: int | None = Field(
+        default=None,
+        ge=0,
+        description=(
+            "Direct index of the 'tool' message in the formatted LLM message list; points to the response to redact."
+        ),
     )
     summary: str = Field(
         description="Short synopsis that keeps the continuity of the conversation.",
@@ -38,7 +51,7 @@ class RelevanceCondensationDirective(Event):
         description="Agent step ordinal when the directive was recorded.",
     )
 
-    @field_validator("requested_event_id", "requesting_action_id")
+    @field_validator("tool_call_id", "requesting_action_id")
     @classmethod
     def _validate_event_id(cls, value: EventID | None) -> EventID | None:
         """Ensure referenced event identifiers are formatted as UUIDs."""
@@ -59,4 +72,3 @@ class RelevanceCondensationDirective(Event):
         if len(trimmed) > SUMMARY_MAX_CHARS:
             raise ValueError(f"summary must be <= {SUMMARY_MAX_CHARS} characters")
         return trimmed
-

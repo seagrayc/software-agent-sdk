@@ -74,7 +74,7 @@ def test_redacts_observation_in_place() -> None:
     action_event = _action(tool_call_id=tool_call_id, response_id=response_id)
     observation = _observation(tool_call_id)
     directive = RelevanceCondensationDirective(
-        requested_event_id=observation.id,
+        tool_call_id=observation.id,
         summary="no longer actionable",
     )
 
@@ -106,7 +106,7 @@ def test_redacts_observation_in_place() -> None:
 
 def test_condense_skips_missing_targets_and_keeps_directive() -> None:
     directive = RelevanceCondensationDirective(
-        requested_event_id=str(uuid4()),
+        tool_call_id=str(uuid4()),
         summary="stale directive",
     )
     events = [_message("context"), directive]
@@ -127,11 +127,11 @@ def test_condense_handles_duplicate_directives_once() -> None:
     action = _action(tool_call_id=tool_call_id, response_id=response_id)
     observation = _observation(tool_call_id)
     directive_one = RelevanceCondensationDirective(
-        requested_event_id=observation.id,
+        tool_call_id=observation.id,
         summary="first attempt",
     )
     directive_two = RelevanceCondensationDirective(
-        requested_event_id=observation.id,
+        tool_call_id=observation.id,
         summary="second attempt",
     )
 
@@ -160,3 +160,44 @@ def test_condense_handles_duplicate_directives_once() -> None:
         directive_one.id,
         directive_two.id,
     }
+
+
+def test_redacts_observation_using_direct_index() -> None:
+    tool_call_id = str(uuid4())
+    response_id = str(uuid4())
+    action_event = _action(tool_call_id=tool_call_id, response_id=response_id)
+    observation = _observation(tool_call_id)
+
+    # Build view and compute message index for the observation
+    events = [
+        _message("user request"),
+        action_event,
+        observation,
+    ]
+    view = View.from_events(events)
+
+    from openhands.sdk.event.base import LLMConvertibleEvent
+    msgs = LLMConvertibleEvent.events_to_messages(view.events)
+    direct_index: int | None = None
+    for i, m in enumerate(msgs):
+        if m.role == "tool" and m.tool_call_id == tool_call_id:
+            direct_index = i
+            break
+    assert direct_index is not None
+
+    directive = RelevanceCondensationDirective(
+        tool_call_direct_index=direct_index,
+        summary="condense by index",
+    )
+
+    # New view with directive appended
+    view2 = View.from_events(events + [directive])
+    condenser = LLMRelevanceCondenser()
+    redacted = condenser.condense(view2)
+
+    assert isinstance(redacted, View)
+    # observation at index 2 replaced in-place to redacted error with same tool_call_id
+    redacted_event = redacted.events[2]
+    assert isinstance(redacted_event, AgentErrorEvent)
+    assert redacted_event.tool_call_id == observation.tool_call_id
+    assert redacted_event.error == "Response redacted: condense by index"

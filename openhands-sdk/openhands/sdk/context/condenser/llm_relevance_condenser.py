@@ -31,10 +31,54 @@ class LLMRelevanceCondenser(CondenserBase):
 
         # Map target observation id → redaction message
         redactions: dict[str, str] = {}
+        # Collect direct indices to resolve within this view
+        idx_directives: list[tuple[int, str]] = []  # (index, redaction message)
+
         for d in directives:
             msg = d.summary.strip()
-            if msg:
-                redactions[d.requested_event_id] = f"Response redacted: {msg}"
+            if not msg:
+                continue
+            message = f"Response redacted: {msg}"
+            if d.tool_call_id:
+                # When tool_call_id is provided on the directive, it contains the target
+                # event id to redact.
+                redactions[d.tool_call_id] = message
+            if d.tool_call_direct_index is not None:
+                idx_directives.append((d.tool_call_direct_index, message))
+
+        # Resolve any direct-index directives by mapping message indices to observation events
+        if idx_directives:
+            # Build mapping: message_index -> observation_event_id for this view
+            idx_to_event: dict[int, str] = {}
+            idx = 0
+            i = 0
+            events = list(view.events)
+            from openhands.sdk.event.llm_convertible import ActionEvent
+            while i < len(events):
+                ev = events[i]
+                if isinstance(ev, ActionEvent):
+                    # Combine adjacent ActionEvents sharing the same llm_response_id
+                    response_id = ev.llm_response_id
+                    j = i + 1
+                    while j < len(events):
+                        nxt = events[j]
+                        if not isinstance(nxt, ActionEvent) or nxt.llm_response_id != response_id:
+                            break
+                        j += 1
+                    # Assistant message occupies one index
+                    idx += 1
+                    i = j
+                else:
+                    # Single non-action event → one message
+                    if isinstance(ev, ObservationBaseEvent):
+                        idx_to_event[idx] = ev.id
+                    idx += 1
+                    i += 1
+
+            for index, msg in idx_directives:
+                ev_id = idx_to_event.get(index)
+                if ev_id:
+                    redactions[ev_id] = msg
 
         if not redactions:
             return view
