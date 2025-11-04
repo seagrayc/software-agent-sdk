@@ -18,13 +18,13 @@ class RelevanceCondensationDirective(Event):
     """
 
     source: SourceType = "environment"
-    tool_call_id: EventID | None = Field(
-        default=None,
-        description=(
-            "Identifier (event id, UUID) of the observation the LLM has marked as safe to condense."
-        ),
-        examples=["cfb0d6d2-3ef1-4f75-8e36-8a6fdb7d6f80"],
-    )
+    # tool_call_id: str | None = Field(
+    #     default=None,
+    #     description=(
+    #         "Identifier of the observation the LLM has marked as safe to condense."
+    #     ),
+    #     examples=["tool_call_1"],
+    # )
     tool_call_direct_index: int | None = Field(
         default=None,
         ge=0,
@@ -51,7 +51,7 @@ class RelevanceCondensationDirective(Event):
         description="Agent step ordinal when the directive was recorded.",
     )
 
-    @field_validator("tool_call_id", "requesting_action_id")
+    @field_validator("requesting_action_id")
     @classmethod
     def _validate_event_id(cls, value: EventID | None) -> EventID | None:
         """Ensure referenced event identifiers are formatted as UUIDs."""

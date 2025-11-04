@@ -23,7 +23,6 @@ class LLMRelevanceCondenser(CondenserBase):
       targeted observation in place with the redaction summary
     - Leave directives intact; repeated application is a no-op
     """
-
     def condense(self, view: View) -> View:
         directives = getattr(view, "relevance_directives", [])
         if not directives:
@@ -39,12 +38,14 @@ class LLMRelevanceCondenser(CondenserBase):
             if not msg:
                 continue
             message = f"Response redacted: {msg}"
-            if d.tool_call_id:
+            tool_call_direct_index = self.extract_numeric_id(d.tool_call_direct_index)
+            # if tool_call_id:
                 # When tool_call_id is provided on the directive, it contains the target
                 # event id to redact.
-                redactions[d.tool_call_id] = message
-            if d.tool_call_direct_index is not None:
-                idx_directives.append((d.tool_call_direct_index, message))
+                # redactions[d.tool_call_id] = message
+            if tool_call_direct_index is not None:
+                # d.tool_call_direct_index 
+                idx_directives.append((tool_call_direct_index, message))
 
         # Resolve any direct-index directives by mapping message indices to observation events
         if idx_directives:
@@ -135,3 +136,19 @@ class LLMRelevanceCondenser(CondenserBase):
             condensations=view.condensations,
             relevance_directives=view.relevance_directives,
         )
+    
+    def extract_numeric_id(self, id_template):
+        
+        if isinstance(id_template, int):
+            return id_template
+        
+        if id_template.isdigit():
+            return int(id_template)
+
+        prefix = 'tool_call_id_'
+        if id_template.startswith(prefix):
+            stripped = id_template[len(prefix):]
+            if stripped.isdigit():
+                return int(stripped)
+
+        return None

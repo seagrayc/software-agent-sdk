@@ -279,7 +279,7 @@ class LocalConversation(BaseConversation):
         """Set the confirmation policy and store it in conversation state."""
         with self._state:
             self._state.confirmation_policy = policy
-        logger.info(f"Confirmation policy set to: {policy}")
+        logger.info(f"Confirmation policy set to: {policy}")\
 
     def reject_pending_actions(self, reason: str = "User rejected the action") -> None:
         """Reject all pending actions from the agent.

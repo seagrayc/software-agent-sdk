@@ -1,31 +1,15 @@
 """
-Relevance-driven context condensation demo with a multi-level file hunt.
-
 The agent progressively reads files to uncover a chain of "secrets" across
-nested levels of a temporary workspace directory. As the agent moves to the
+nested levels of folders. As the agent moves to the
 next level, earlier directory listings and file views are no longer relevant
 and can be redacted to reduce context.
 
-Important: secrets are embedded in file contents, not filenames. This forces
-the agent to open files (creating more tool observations) and gives the
-relevance condenser meaningful observations to mask as the search progresses.
-
-Key characteristics:
-- Tools: only expose file listing and viewing to the LLM via FileEditorTool
-  (by instruction, use `view` only; no searching tools are registered).
 - Relevance condenser: LLMRelevanceCondenser applies recorded directives
   inline (observations are replaced with short redaction messages while
   preserving tool-call pairing).
 - Temporary workspace: created for the run and automatically cleaned up. Each
   level contains several misleading files and exactly one file whose contents
   reveal the next secret.
-
-Identifier used by the tool:
-The relevance condenser tool accepts the tool_call_id associated with the
-observation. Since tool_call_id is present in structured tool messages in
-function-calling contexts, LLMs can reference it directly in end-to-end runs.
-In this demo, the LLM is expected to invoke the tool itself, providing the
-tool_call_id of the observation to redact along with a concise summary.
 """
 
 from __future__ import annotations
@@ -78,7 +62,6 @@ def _build_secret_workspace(root: Path) -> None:
             "This is a dead end. Keep exploring other files.\n"
         )
 
-    # Level 1: filenames are neutral; contents hide the next secret (12)
     lvl1_files = [
         "alpha.txt",
         "beta.txt",
@@ -95,7 +78,6 @@ def _build_secret_workspace(root: Path) -> None:
             "This is not helpful. Try another file in this folder.\n"
         )
 
-    # Level 2: filenames are neutral; contents hide the next secret (21)
     lvl2_files = [
         "ornithology.txt",
         "herpetology.txt",
@@ -112,7 +94,6 @@ def _build_secret_workspace(root: Path) -> None:
             "This file contains field notes with no relevant secret.\n"
         )
 
-    # Level 3: filenames are neutral; one contains the final secret (42)
     lvl3_files = [
         "red.txt",
         "blue.txt",
@@ -130,8 +111,10 @@ def _build_secret_workspace(root: Path) -> None:
 
 def main() -> None:
     api_key = os.getenv("LLM_API_KEY")
-    assert api_key is not None, "LLM_API_KEY environment variable is not set."
-    model = os.getenv("LLM_MODEL", "openhands/claude-sonnet-4-5-20250929")
+    # Vertex AI ... oh gosh
+    # assert api_key is not None, "LLM_API_KEY environment variable is not set."
+    
+    model = os.getenv("LLM_MODEL", "LLM_MODEL environment variable is not set.")
     base_url = os.getenv("LLM_BASE_URL")
     llm = LLM(
         usage_id="agent",
@@ -159,7 +142,12 @@ def main() -> None:
         _build_secret_workspace(root)
 
         # Agent with condenser and restricted tools (by instruction)
-        agent = Agent(llm=llm, tools=tools, condenser=condenser)
+        agent = Agent(
+            llm=llm,
+            tools=tools,
+            condenser=condenser,
+            system_prompt_filename="system_prompt_short.j2",
+        )
 
         llm_messages: list = []  # collect raw LLM-visible messages
 
@@ -173,11 +161,11 @@ def main() -> None:
             f"Workspace root: {root}\n\n"
             "Rules:\n"
             "- Use only the 'FileEditorTool' with the 'view' command to list directories and view files.\n"
+            " via its stated usage: str_replace_editor: If `path` is a directory, `view` lists non-hidden files and directories up to 2 levels deep"
             "- Always use absolute paths under the workspace root.\n"
             "- Filenames contain no clues. At each level, you must OPEN files and READ their contents to find the next secret.\n"
             "- Exactly one file per level contains either 'NEXT SECRET: <number>' or 'FINAL SECRET: 42'. Others are misleading.\n"
             "- When you progress to a new level, proactively invoke tool 'relevance_condenser' to mask earlier FileEditorTool observations that are no longer relevant.\n"
-            "  Provide the observation's tool_call_id and a concise (1–3 sentence) summary explaining the redaction. Only observation content is masked; actions remain.\n"
             "- Explore all levels until you find the final secret.\n"
         )
 

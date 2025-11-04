@@ -56,7 +56,7 @@ class RelevanceCondenserExecutor(
 
 
         directive = RelevanceCondensationDirective(
-            tool_call_id=action.tool_call_id,
+            # tool_call_id=action.tool_call_id,
             tool_call_direct_index=action.tool_call_direct_index,
             summary=action.summary_text,
         )
@@ -68,7 +68,7 @@ class RelevanceCondenserExecutor(
         )
         return RelevanceCondensationObservation(
             message=message,
-            accepted_event_ids=[action.tool_call_id, action.tool_call_direct_index] # filter not null / split,
+            accepted_event_ids= [x for x in [action.tool_call_direct_index] if x is not None],
             rejected_event_ids=[],
         )
 
