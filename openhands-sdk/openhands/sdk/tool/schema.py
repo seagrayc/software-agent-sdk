@@ -275,6 +275,7 @@ class Observation(Schema, ABC):
             text.append("[no text content]")
         return text
 
+RELEVANCE_SUMMARY_MAX_CHARS = 250
 class RelevanceCondensationAction(Action):
     """Tool request payload for marking past tool observations as no longer relevant.
 
@@ -308,7 +309,7 @@ class RelevanceCondensationAction(Action):
         max_length=RELEVANCE_SUMMARY_MAX_CHARS,
     )
 
-    @field_validator("summary_text")
+    # @field_validator("summary_text")
     @classmethod
     def _validate_summary_text(cls, v: str) -> str:
         s = v.strip()
