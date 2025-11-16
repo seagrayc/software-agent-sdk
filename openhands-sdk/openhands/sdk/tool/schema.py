@@ -275,7 +275,10 @@ class Observation(Schema, ABC):
             text.append("[no text content]")
         return text
 
+
 RELEVANCE_SUMMARY_MAX_CHARS = 250
+
+
 class RelevanceCondensationAction(Action):
     """Tool request payload for marking past tool observations as no longer relevant.
 
@@ -324,6 +327,7 @@ class RelevanceCondensationAction(Action):
     #             "Either tool_call_id or tool_call_direct_index must be provided"
     #         )
     #     return self
+
 
 class RelevanceCondensationObservation(Observation):
     """Tool response indicating which directives were accepted."""
