@@ -274,3 +274,29 @@ class Observation(Schema, ABC):
         else:
             text.append("[no text content]")
         return text
+
+
+RELEVANCE_SUMMARY_MAX_CHARS = 250
+
+
+class RelevanceCondensationObservation(Observation):
+    """Tool response indicating which directives were accepted."""
+
+    message: str = Field(
+        description="Acknowledgement presented to the requesting assistant.",
+        min_length=1,
+        max_length=RELEVANCE_SUMMARY_MAX_CHARS,
+    )
+    accepted_event_ids: list[int] = Field(
+        default_factory=list,
+        description="Event IDs accepted for condensation.",
+    )
+    rejected_event_ids: list[int] = Field(
+        default_factory=list,
+        description="Event IDs rejected with details in the message.",
+    )
+
+    @property
+    def to_llm_content(self) -> Sequence[TextContent | ImageContent]:
+        """Return a textual acknowledgement for the LLM."""
+        return [TextContent(text=self.message)]

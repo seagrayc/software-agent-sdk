@@ -54,7 +54,9 @@ def conversation_callback(event: Event):
         llm_messages.append(event.to_llm_message())
 
 
+# conversation_id = uuid.UUID('fc87e873d6e74d5aa74c49d75b349ec2')
 conversation_id = uuid.uuid4()
+
 persistence_dir = "./.conversations"
 
 conversation = Conversation(
@@ -64,10 +66,12 @@ conversation = Conversation(
     persistence_dir=persistence_dir,
     conversation_id=conversation_id,
 )
+
 conversation.send_message(
     "Read https://github.com/OpenHands/OpenHands. Then write 3 facts "
     "about the project into FACTS.txt."
 )
+
 conversation.run()
 
 conversation.send_message("Great! Now delete that file.")

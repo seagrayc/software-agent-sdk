@@ -2,13 +2,14 @@ from collections.abc import Sequence
 from logging import getLogger
 from typing import overload
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from openhands.sdk.event import (
     Condensation,
     CondensationRequest,
     CondensationSummaryEvent,
     LLMConvertibleEvent,
+    RelevanceCondensationDirective,
 )
 from openhands.sdk.event.base import Event, EventID
 from openhands.sdk.event.llm_convertible import (
@@ -36,6 +37,11 @@ class View(BaseModel):
 
     condensations: list[Condensation] = []
     """A list of condensations that were processed to produce the view."""
+
+    relevance_directives: list[RelevanceCondensationDirective] = Field(
+        default_factory=list,
+        description="Relevance condensation directives captured alongside the view.",
+    )
 
     def __len__(self) -> int:
         return len(self.events)
@@ -186,6 +192,7 @@ class View(BaseModel):
         """
         forgotten_event_ids: set[EventID] = set()
         condensations: list[Condensation] = []
+        relevance_directives: list[RelevanceCondensationDirective] = []
         for event in events:
             if isinstance(event, Condensation):
                 condensations.append(event)
@@ -194,6 +201,8 @@ class View(BaseModel):
                 forgotten_event_ids.add(event.id)
             if isinstance(event, CondensationRequest):
                 forgotten_event_ids.add(event.id)
+            if isinstance(event, RelevanceCondensationDirective):
+                relevance_directives.append(event)
 
         # Enforce batch atomicity: if any event in a multi-action batch is forgotten,
         # forget all events in that batch to prevent partial batches with thinking
@@ -236,8 +245,15 @@ class View(BaseModel):
                 unhandled_condensation_request = True
                 break
 
+        active_directives = [
+            directive
+            for directive in relevance_directives
+            if directive.id not in forgotten_event_ids
+        ]
+
         return View(
             events=View.filter_unmatched_tool_calls(kept_events),
             unhandled_condensation_request=unhandled_condensation_request,
             condensations=condensations,
+            relevance_directives=active_directives,
         )
