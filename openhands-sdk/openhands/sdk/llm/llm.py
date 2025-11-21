@@ -920,7 +920,9 @@ class LLM(BaseModel, RetryMixin, NonNativeToolCallingMixin):
             )
             message.send_reasoning_content = model_features.send_reasoning_content
 
-        formatted_messages = [message.to_chat_dict(i) for i, message in enumerate(messages)]
+        formatted_messages = [
+            message.to_chat_dict(i) for i, message in enumerate(messages)
+        ]
 
         return formatted_messages
 

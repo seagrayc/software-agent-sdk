@@ -5,13 +5,14 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
-from openhands.sdk.event.relevance_condenser import RelevanceCondensationDirective
-from openhands.sdk.event.llm_convertible import ObservationBaseEvent
-from openhands.sdk.tool import ToolAnnotations, ToolDefinition, ToolExecutor
+from pydantic import Field, field_validator
+
+from openhands.sdk.tool import Action, ToolAnnotations, ToolDefinition
 from openhands.sdk.tool.schema import (
-    RelevanceCondensationAction,
+    RELEVANCE_SUMMARY_MAX_CHARS,
     RelevanceCondensationObservation,
 )
+
 
 if TYPE_CHECKING:
     from openhands.sdk.conversation.state import ConversationState
@@ -19,18 +20,14 @@ if TYPE_CHECKING:
 
 TOOL_DESCRIPTION = """Background tool to mark past tool outputs as no longer relevant.
 
-Provide an identifier for a prior tool observation that no longer aids the
+Provide the identifier for a prior tool observation that no longer aids the
 current discussion, plus a short reasoned summary explaining the redaction.
 The condenser will mask (redact) the observation content and replace it with
 your concise summary while leaving the original tool invocation in the chat
-history. Nothing is deleted; masking preserves continuity and discourages
-duplicate re-invocation.
+history.
 
 Identification:
-- tool_call_id: Provide the tool message identifier the model sees in
-  function-calling contexts.
-- tool_call_direct_index: Provide the direct message index for the tool response
-  to redact (as seen by the LLM after formatting).
+- tool_call_index: Provide the index for the tool response to redact.
 
 Usage notes:
 - Only observation content is masked; original action/tool invocation remains.
@@ -42,35 +39,35 @@ Guardrails:
 - Never target user messages, system prompts, or security warnings."""
 
 
-class RelevanceCondenserExecutor(
-    ToolExecutor[RelevanceCondensationAction, RelevanceCondensationObservation]
-):
-    """Executor that records relevance condensation directives."""
+class RelevanceCondensationAction(Action):
+    "Tool request payload for marking past tool observations as no longer relevant."
 
-    def __init__(self, state: "ConversationState"):
-        self._state = state
+    tool_call_index: int = Field(  # type: ignore[assignment]
+        ge=0,
+        description=(
+            "Identifier of the 'tool' message which is no longer "
+            "relevant to the task. "
+            "Is provided at the start of all tool responses, "
+            "in the form: [tool_call_index: {i}]"
+        ),
+    )
+    summary_text: str = Field(
+        description=(
+            "One to three sentence summary used to replace the original tool "
+            "response. Keeps global context to relevant information, whilst "
+            "preserving continuity."
+        ),
+        min_length=1,
+        max_length=RELEVANCE_SUMMARY_MAX_CHARS,
+    )
 
-    def __call__(
-        self, action: RelevanceCondensationAction
-    ) -> RelevanceCondensationObservation:
-
-
-        directive = RelevanceCondensationDirective(
-            # tool_call_id=action.tool_call_id,
-            tool_call_direct_index=action.tool_call_direct_index,
-            summary=action.summary_text,
-        )
-
-        self._state.events.append(directive)
-
-        message = (
-            "Condensation directive recorded; condenser will apply redaction."
-        )
-        return RelevanceCondensationObservation(
-            message=message,
-            accepted_event_ids= [x for x in [action.tool_call_direct_index] if x is not None],
-            rejected_event_ids=[],
-        )
+    @field_validator("summary_text")
+    @classmethod
+    def _validate_summary_text(cls, v: str) -> str:
+        s = v.strip()
+        if not s:
+            raise ValueError("summary_text cannot be empty or whitespace only")
+        return s
 
 
 class LLMRelevanceCondenserTool(
@@ -78,27 +75,26 @@ class LLMRelevanceCondenserTool(
 ):
     """Tool wiring for LLM-managed relevance condensation."""
 
-    name: str = "relevance_condenser"
-    description: str = TOOL_DESCRIPTION
-    action_type: type[RelevanceCondensationAction] = RelevanceCondensationAction
-    observation_type: type[
-        RelevanceCondensationObservation
-    ] = RelevanceCondensationObservation
-    annotations: ToolAnnotations = ToolAnnotations(
-        title="mark_context_redundant",
-        readOnlyHint=True,
-        destructiveHint=False,
-        idempotentHint=True,
-        openWorldHint=False,
-    )
-
     @classmethod
     def create(
-        cls, conv_state: "ConversationState"
-    ) -> Sequence["LLMRelevanceCondenserTool"]:
+        cls, conv_state: ConversationState
+    ) -> Sequence[LLMRelevanceCondenserTool]:
+        # Import here to avoid circular imports
+        from openhands.tools.relevance_condenser.impl import RelevanceCondenserExecutor
+
         executor = RelevanceCondenserExecutor(state=conv_state)
         return [
             cls(
+                description=TOOL_DESCRIPTION,
+                action_type=RelevanceCondensationAction,
+                observation_type=RelevanceCondensationObservation,
+                annotations=ToolAnnotations(
+                    title="mark_context_redundant",
+                    readOnlyHint=True,
+                    destructiveHint=False,
+                    idempotentHint=True,
+                    openWorldHint=False,
+                ),
                 executor=executor,
             )
         ]

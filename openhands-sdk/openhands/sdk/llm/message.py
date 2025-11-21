@@ -263,7 +263,7 @@ class Message(BaseModel):
             return [TextContent(text=v)]
         return v
 
-    def to_chat_dict(self) -> dict[str, Any]:
+    def to_chat_dict(self, i: int | None = None) -> dict[str, Any]:
         """Serialize message for OpenAI Chat Completions.
 
         Chooses the appropriate content serializer and then injects threading keys:
@@ -291,6 +291,16 @@ class Message(BaseModel):
             )
             message_dict["tool_call_id"] = self.tool_call_id
             message_dict["name"] = self.name
+
+        # Inject a direct identifier to allow LLMs to redact tool
+        # responses no longer relevant to the task.
+        # The index `i` here corresponds to
+        # RelevanceCondensationDirective.tool_call_index and is resolved
+        # by LLMRelevanceCondenser when applying redactions.
+        if self.role == "tool" and not self.tool_calls:
+            for item in message_dict["content"]:
+                if item.get("type") == "text":
+                    item["text"] = f"[tool_call_index: {i}] " + item.get("text", "")
 
         # Required for model like kimi-k2-thinking
         if self.send_reasoning_content and self.reasoning_content:

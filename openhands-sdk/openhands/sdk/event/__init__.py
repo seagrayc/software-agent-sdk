@@ -5,7 +5,6 @@ from openhands.sdk.event.condenser import (
     CondensationSummaryEvent,
 )
 from openhands.sdk.event.conversation_state import ConversationStateUpdateEvent
-from openhands.sdk.event.relevance_condenser import RelevanceCondensationDirective
 from openhands.sdk.event.llm_convertible import (
     ActionEvent,
     AgentErrorEvent,
@@ -15,6 +14,7 @@ from openhands.sdk.event.llm_convertible import (
     SystemPromptEvent,
     UserRejectObservation,
 )
+from openhands.sdk.event.relevance_condenser import RelevanceCondensationDirective
 from openhands.sdk.event.token import TokenEvent
 from openhands.sdk.event.types import EventID, ToolCallID
 from openhands.sdk.event.user_action import PauseEvent

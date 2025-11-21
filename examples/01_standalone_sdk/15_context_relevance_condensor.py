@@ -16,10 +16,8 @@ from __future__ import annotations
 
 import os
 import tempfile
-from pathlib import Path
 import uuid
-
-from pydantic import SecretStr
+from pathlib import Path
 
 from openhands.sdk import (
     LLM,
@@ -70,9 +68,7 @@ def _build_secret_workspace(root: Path) -> None:
         "epsilon.txt",
         "zeta.txt",
     ]
-    (lvl1 / lvl1_files[2]).write_text(
-        "NEXT SECRET (for level 2): 12\n"
-    )
+    (lvl1 / lvl1_files[2]).write_text("NEXT SECRET (for level 2): 12\n")
     for fname in [f for i, f in enumerate(lvl1_files) if i != 2]:
         (lvl1 / fname).write_text(
             "This is not helpful. Try another file in this folder.\n"
@@ -86,9 +82,7 @@ def _build_secret_workspace(root: Path) -> None:
         "mammalogy.txt",
         "botany.txt",
     ]
-    (lvl2 / lvl2_files[4]).write_text(
-        "NEXT SECRET (for level 3): 21\n"
-    )
+    (lvl2 / lvl2_files[4]).write_text("NEXT SECRET (for level 3): 21\n")
     for fname in [f for i, f in enumerate(lvl2_files) if i != 4]:
         (lvl2 / fname).write_text(
             "This file contains field notes with no relevant secret.\n"
@@ -104,33 +98,31 @@ def _build_secret_workspace(root: Path) -> None:
     ]
     (lvl3 / lvl3_files[1]).write_text("FINAL SECRET: 42\n")
     for fname in [f for i, f in enumerate(lvl3_files) if i != 1]:
-        (lvl3 / fname).write_text(
-            "This is not the file you are looking for.\n"
-        )
+        (lvl3 / fname).write_text("This is not the file you are looking for.\n")
 
 
 def main() -> None:
-    api_key = os.getenv("LLM_API_KEY")
+    # api_key = os.getenv("LLM_API_KEY")
     # Vertex AI ... oh gosh
     # assert api_key is not None, "LLM_API_KEY environment variable is not set."
-    
+
     model = os.getenv("LLM_MODEL", "LLM_MODEL environment variable is not set.")
     base_url = os.getenv("LLM_BASE_URL")
     llm = LLM(
         usage_id="agent",
         model=model,
         base_url=base_url,
-        api_key=SecretStr(api_key),
+        # api_key=SecretStr(api_key),
         native_tool_calling=True,
     )
 
     # Register tools
     register_tool("FileEditorTool", FileEditorTool)
-    register_tool("relevance_condenser", LLMRelevanceCondenserTool)
+    register_tool("RelevanceCondenser", LLMRelevanceCondenserTool)
 
     tools = [
         Tool(name="FileEditorTool"),
-        Tool(name="relevance_condenser"),
+        Tool(name="RelevanceCondenser"),
     ]
 
     # Use LLMRelevanceCondenser to apply directives in-place
@@ -141,7 +133,6 @@ def main() -> None:
         root = Path(temp_dir)
         _build_secret_workspace(root)
 
-        # Agent with condenser and restricted tools (by instruction)
         agent = Agent(
             llm=llm,
             tools=tools,
@@ -155,17 +146,19 @@ def main() -> None:
             if isinstance(event, LLMConvertibleEvent):
                 llm_messages.append(event.to_llm_message())
 
-        # Strong guidance: only view/list, use absolute paths, follow the chain, and use the condenser tool yourself
         instruction = (
             "You are in a secret hunt inside a temporary workspace.\n"
             f"Workspace root: {root}\n\n"
             "Rules:\n"
-            "- Use only the 'FileEditorTool' with the 'view' command to list directories and view files.\n"
-            " via its stated usage: str_replace_editor: If `path` is a directory, `view` lists non-hidden files and directories up to 2 levels deep"
-            "- Always use absolute paths under the workspace root.\n"
-            "- Filenames contain no clues. At each level, you must OPEN files and READ their contents to find the next secret.\n"
-            "- Exactly one file per level contains either 'NEXT SECRET: <number>' or 'FINAL SECRET: 42'. Others are misleading.\n"
-            "- When you progress to a new level, proactively invoke tool 'relevance_condenser' to mask earlier FileEditorTool observations that are no longer relevant.\n"
+            "- Use only the 'FileEditorTool' with the 'view' command "
+            "to list directories and view files.\n"
+            "- At each level, you must OPEN files and READ their contents "
+            "to find the next secret.\n"
+            "- Exactly one file per level contains either 'NEXT SECRET: <number>' "
+            "or 'FINAL SECRET: 42'. Others are misleading.\n"
+            "- When you progress to a new level, proactively invoke tool "
+            "'relevance_condenser' to mask earlier FileEditorTool observations "
+            "that are no longer relevant.\n"
             "- Explore all levels until you find the final secret.\n"
         )
 
@@ -196,9 +189,10 @@ def main() -> None:
             print(f"Message {i}: {preview}")
 
         print(
-            "\nIf the LLM invoked 'relevance_condenser', the condenser will replace prior"
-            " observations with short redaction notes while preserving tool-call"
-            " pairing on subsequent steps."
+            "\nIf the LLM invoked 'relevance_condenser', "
+            "the condenser will replace prior observations "
+            "with short redaction notes while preserving "
+            "tool-call pairing on subsequent steps."
         )
 
 

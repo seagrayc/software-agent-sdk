@@ -279,56 +279,6 @@ class Observation(Schema, ABC):
 RELEVANCE_SUMMARY_MAX_CHARS = 250
 
 
-class RelevanceCondensationAction(Action):
-    """Tool request payload for marking past tool observations as no longer relevant.
-
-    Identification supports either:
-    - tool_call_direct_index: direct index of the tool message in the formatted LLM messages
-    At least one of these must be provided. If both are provided, the direct index takes precedence.
-    """
-
-    # tool_call_id: str | None = Field(
-    #     default=None,
-    #     description=(
-    #         "Tool call identifier associated with the observation to condense."
-    #     ),
-    #     examples=["call_1234abcdef"],
-    #     min_length=1,
-    # )
-
-    tool_call_direct_index: int | None = Field(
-        default=None,
-        ge=0,
-        description=(
-            "Direct index of the 'tool' message in the formatted LLM message list; points to the response to redact."
-        ),
-    )
-    summary_text: str = Field(
-        description=(
-            "One to three sentence summary used to replace the original observation "
-            "content (mask/redact) while preserving continuity."
-        ),
-        min_length=1,
-        max_length=RELEVANCE_SUMMARY_MAX_CHARS,
-    )
-
-    # @field_validator("summary_text")
-    @classmethod
-    def _validate_summary_text(cls, v: str) -> str:
-        s = v.strip()
-        if not s:
-            raise ValueError("summary_text cannot be empty or whitespace only")
-        return s
-
-    # @model_validator(mode="after")
-    # def _validate_identifier(self) -> "RelevanceCondensationAction":
-    #     if self.tool_call_id is None and self.tool_call_direct_index is None:
-    #         raise ValueError(
-    #             "Either tool_call_id or tool_call_direct_index must be provided"
-    #         )
-    #     return self
-
-
 class RelevanceCondensationObservation(Observation):
     """Tool response indicating which directives were accepted."""
 
@@ -337,11 +287,11 @@ class RelevanceCondensationObservation(Observation):
         min_length=1,
         max_length=RELEVANCE_SUMMARY_MAX_CHARS,
     )
-    accepted_event_ids: list[str | int] = Field(
+    accepted_event_ids: list[int] = Field(
         default_factory=list,
         description="Event IDs accepted for condensation.",
     )
-    rejected_event_ids: list[str | int] = Field(
+    rejected_event_ids: list[int] = Field(
         default_factory=list,
         description="Event IDs rejected with details in the message.",
     )

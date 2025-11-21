@@ -16,13 +16,11 @@ logger = getLogger(__name__)
 
 class LLMRelevanceCondenser(CondenserBase):
     """Apply tool-initiated relevance directives in-place and return an updated View.
-
-    Simplified behaviour:
-    - Directly returns the modified View
     - Re-apply all relevance directives present in the View by masking each
       targeted observation in place with the redaction summary
     - Leave directives intact; repeated application is a no-op
     """
+
     def condense(self, view: View) -> View:
         directives = getattr(view, "relevance_directives", [])
         if not directives:
@@ -38,16 +36,12 @@ class LLMRelevanceCondenser(CondenserBase):
             if not msg:
                 continue
             message = f"Response redacted: {msg}"
-            tool_call_direct_index = self.extract_numeric_id(d.tool_call_direct_index)
-            # if tool_call_id:
-                # When tool_call_id is provided on the directive, it contains the target
-                # event id to redact.
-                # redactions[d.tool_call_id] = message
-            if tool_call_direct_index is not None:
-                # d.tool_call_direct_index 
-                idx_directives.append((tool_call_direct_index, message))
+            tool_call_index = self.extract_numeric_id(d.tool_call_index)
+            if tool_call_index is not None:
+                idx_directives.append((tool_call_index, message))
 
-        # Resolve any direct-index directives by mapping message indices to observation events
+        # Resolve any direct-index directives by mapping message indices
+        # to observation events
         if idx_directives:
             # Build mapping: message_index -> observation_event_id for this view
             idx_to_event: dict[int, str] = {}
@@ -55,6 +49,7 @@ class LLMRelevanceCondenser(CondenserBase):
             i = 0
             events = list(view.events)
             from openhands.sdk.event.llm_convertible import ActionEvent
+
             while i < len(events):
                 ev = events[i]
                 if isinstance(ev, ActionEvent):
@@ -63,7 +58,10 @@ class LLMRelevanceCondenser(CondenserBase):
                     j = i + 1
                     while j < len(events):
                         nxt = events[j]
-                        if not isinstance(nxt, ActionEvent) or nxt.llm_response_id != response_id:
+                        if (
+                            not isinstance(nxt, ActionEvent)
+                            or nxt.llm_response_id != response_id
+                        ):
                             break
                         j += 1
                     # Assistant message occupies one index
@@ -84,7 +82,11 @@ class LLMRelevanceCondenser(CondenserBase):
         if not redactions:
             return view
 
-        # Replace each targeted observation in-place with a minimal redacted observation
+        # Replace each targeted observation in-place with a minimal
+        # redacted observation.
+        # We preserve event identity (id, timestamp, etc.) so that
+        # repeated application is a no-op from the perspective of the
+        # event stream.
         replaced = 0
         new_events = []
         for ev in view.events:
@@ -92,28 +94,16 @@ class LLMRelevanceCondenser(CondenserBase):
             if redaction and isinstance(ev, ObservationBaseEvent):
                 if isinstance(ev, ObservationEvent):
                     new_obs = RelevanceCondensationObservation(message=redaction)
-                    new_ev = ObservationEvent(
-                        tool_name=ev.tool_name,
-                        tool_call_id=ev.tool_call_id,
-                        action_id=ev.action_id,
-                        observation=new_obs,
-                    )
+                    new_ev = ev.model_copy(update={"observation": new_obs})
                 elif isinstance(ev, AgentErrorEvent):
-                    new_ev = AgentErrorEvent(
-                        tool_name=ev.tool_name,
-                        tool_call_id=ev.tool_call_id,
-                        error=redaction,
-                    )
+                    new_ev = ev.model_copy(update={"error": redaction})
                 elif isinstance(ev, UserRejectObservation):
-                    new_ev = UserRejectObservation(
-                        tool_name=ev.tool_name,
-                        tool_call_id=ev.tool_call_id,
-                        action_id=ev.action_id,
-                        rejection_reason=redaction,
-                    )
+                    new_ev = ev.model_copy(update={"rejection_reason": redaction})
                 else:
                     # Fallback: ensure we keep tool pairing via AgentErrorEvent
                     new_ev = AgentErrorEvent(
+                        id=ev.id,
+                        timestamp=ev.timestamp,
                         tool_name=ev.tool_name,
                         tool_call_id=ev.tool_call_id,
                         error=redaction,
@@ -136,19 +126,21 @@ class LLMRelevanceCondenser(CondenserBase):
             condensations=view.condensations,
             relevance_directives=view.relevance_directives,
         )
-    
-    def extract_numeric_id(self, id_template):
-        
+
+    def extract_numeric_id(self, id_template: int | str | None) -> int | None:
+        if id_template is None:
+            return None
+
         if isinstance(id_template, int):
             return id_template
-        
+
         if id_template.isdigit():
             return int(id_template)
 
-        prefix = 'tool_call_id_'
-        if id_template.startswith(prefix):
-            stripped = id_template[len(prefix):]
-            if stripped.isdigit():
-                return int(stripped)
+        for prefix in ("tool_call_index_", "tool_call_id_"):
+            if id_template.startswith(prefix):
+                stripped = id_template[len(prefix) :]
+                if stripped.isdigit():
+                    return int(stripped)
 
         return None

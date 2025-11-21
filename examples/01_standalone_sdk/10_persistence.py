@@ -68,7 +68,8 @@ conversation = Conversation(
 )
 
 conversation.send_message(
-    "Explain, with links to relevant source-code how the agent-sdk uses an existing converstaion id Conversation(...conversation_id=conversation_id...) to continue a chat. Provide the key  steps mapping the events to the exact api request sent to the llm. Are there differences depending on the underlying model providers (anthropic / google etc)? What format are conversation events persisted in? Is it the exact network request previously sent/ an Open Hands format / an llmlite format? Create a file called - converstation-persistance-to-network-mapping-gemini.md with the final summary."
+    "Read https://github.com/OpenHands/OpenHands. Then write 3 facts "
+    "about the project into FACTS.txt."
 )
 
 conversation.run()

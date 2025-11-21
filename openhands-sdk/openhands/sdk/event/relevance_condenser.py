@@ -7,29 +7,25 @@ from pydantic import Field, field_validator
 from openhands.sdk.event.base import Event
 from openhands.sdk.event.types import EventID, SourceType
 
+
 SUMMARY_MAX_CHARS: int = 1028
 
-class RelevanceCondensationDirective(Event):
-    """Directive emitted when the LLM-initiated tool identifies previous tool requests that are no longer relevant, and can be redacted.
 
-    Identification supports two forms:
-    - tool_call_id: the target event id (UUID) to redact
-    - tool_call_direct_index: message index pointing directly to the tool result in the LLM-formatted messages
+class RelevanceCondensationDirective(Event):
+    """Directive emitted when the LLM-initiated tool identifies previous tool
+    requests that are no longer relevant, and can be redacted.
+
+    Identification:
+    - tool_call_index: message index pointing directly to the tool result in the
+      LLM-formatted messages.
     """
 
     source: SourceType = "environment"
-    # tool_call_id: str | None = Field(
-    #     default=None,
-    #     description=(
-    #         "Identifier of the observation the LLM has marked as safe to condense."
-    #     ),
-    #     examples=["tool_call_1"],
-    # )
-    tool_call_direct_index: int | None = Field(
-        default=None,
+    tool_call_index: int = Field(
         ge=0,
         description=(
-            "Direct index of the 'tool' message in the formatted LLM message list; points to the response to redact."
+            "Index of the 'tool' message in the formatted LLM message list; "
+            "points to the response to redact."
         ),
     )
     summary: str = Field(
@@ -39,7 +35,9 @@ class RelevanceCondensationDirective(Event):
     )
     requesting_action_id: EventID | None = Field(
         default=None,
-        description="Optional reference to the action event that produced this tool call.",
+        description=(
+            "Optional reference to the action event that produced this tool call."
+        ),
     )
     llm_response_id: str | None = Field(
         default=None,
